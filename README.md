@@ -155,6 +155,10 @@ trino://trino@<host>:<port>/<catalog>
 - Setting up the metastore was "the" find, as it was not very apparent to me, that without hive's metastore none of the query engines SQL can be used out of box.
 - Apache Hive with the release of 3.0, have started providing the metastore service as a stand-alone jar, which can used to start the metastore service only, without any other Hive's runtime dependenies.
 - Spawning a hive metastore service is really straight forward command as shown below, however before we start the configuration, we need to provide the configuration to the service using which it will read the delta-tables and create the metadata.
+- Apache Hive Standalone Metastore, further required me to copy the below dependencies to it's '/lib' folder, otherwise it kept complaining about various s3 implementation class which were not in it's classpath
+- `org.apache.hadoop_hadoop-aws-3.3.2.jar`
+- `com.amazonaws_aws-java-sdk-bundle-1.11.1026.jar`
+- Plus although we are using hdfs or hadoop the script still requires us to specify the environment variable 'HADOOP_HOME', I had hadoop installation so that was easy for me to point, however I'm yet to find out - whether it's just a lingering bed smell which needs to corrected or hive actually uses some of the hadoop's artifact at runtime.
 - Create `metastore-site.xml` under 'conf' directory, with below settings.
 ```<configuration>
   <property>
@@ -196,3 +200,8 @@ trino://trino@<host>:<port>/<catalog>
  </property>
 </configuration>
 ```
+
+## TODO:
+- Find out if there is a way to populate the standalone HMS, when the actual delta-tables are created via spark's data ingestion routines.
+
+
