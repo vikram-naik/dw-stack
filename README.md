@@ -203,5 +203,6 @@ trino://trino@<host>:<port>/<catalog>
 
 ## TODO:
 - Find out if there is a way to populate the standalone HMS, when the actual delta-tables are created via spark's data ingestion routines.
+- Do load testing to an extent to see the efficiency of this setup on a single box, using which we can get a feel of how it would respond when more hardware is thrown at it in production environment.
 
 
