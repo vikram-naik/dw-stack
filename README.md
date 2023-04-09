@@ -129,7 +129,7 @@ node-scheduler.include-coordinator=true
 http-server.http.port=8080
 discovery.uri=http://localhost:8080
 ```
-- 'catalog/delta.properties` - notice the path it's 'etc/catalog/delta.properites'. This is the properties file, which is used by Trino to interact with Delta Tables. The properties provides the HMS uri, the s3 end-point and creds.
+- `catalog/delta.properties` - notice the path it's 'etc/catalog/delta.properites'. This is the properties file, which is used by Trino to interact with Delta Tables. The properties provides the HMS uri, the s3 end-point and creds.
 ```
 connector.name=delta_lake
 hive.metastore.uri=thrift://<host>:9083
@@ -140,4 +140,59 @@ hive.s3.aws-secret-key=<secret_key>
 hive.s3.endpoint=http://<host>:9000
 hive.s3.ssl.enabled=false
 ```
+- Once the configuration is ready, we are all set to spawn Trino container using the above command and query the delta-lake tables. However there is one last step. Before we can start querying the list the tables, we need to populate the hive metastore with delta lake table's metadata. That's can be done by a simple call to `system.register_table(...)` function via presto cli.
 
+- Now that we have the HMS populated, and Trino up and ready to query the delta-lake, we need a BI tool to query the data using Trino to create datasets, graphs, dashboards etc. That's where Apache Superset comes in.
+
+#### Apache Superset
+- I used the Apache Superset's docker-compose mode to try out the product and as manual installation required me to start and configure multiple services and also to provide a datastore (rdbms) which is used by superset to store it's BI configuration.
+- Via the Superset's GUI - we need to setup the Trino's datasource using below datasource URL. Once this datasource is setup, you can start playing around with superset's BI dashboard.
+```
+trino://trino@<host>:<port>/<catalog>
+```
+
+#### Hive Standalone Metastore
+- Setting up the metastore was "the" find, as it was not very apparent to me, that without hive's metastore none of the query engines SQL can be used out of box.
+- Apache Hive with the release of 3.0, have started providing the metastore service as a stand-alone jar, which can used to start the metastore service only, without any other Hive's runtime dependenies.
+- Spawning a hive metastore service is really straight forward command as shown below, however before we start the configuration, we need to provide the configuration to the service using which it will read the delta-tables and create the metadata.
+- Create `metastore-site.xml` under 'conf' directory, with below settings.
+```<configuration>
+  <property>
+    <name>metastore.thrift.uris</name>
+    <value>thrift://<host>:9083</value>
+    <description>Thrift URI for the remote metastore. Used by metastore client to connect to remote metastore.</description>
+  </property>
+  <property>
+    <name>metastore.task.threads.always</name>
+    <value>org.apache.hadoop.hive.metastore.events.EventCleanerTask</value>
+  </property>
+  <property>
+    <name>metastore.expression.proxy</name>
+    <value>org.apache.hadoop.hive.metastore.DefaultPartitionExpressionProxy</value>
+  </property>
+<property>
+    <name>fs.s3a.access.key</name>
+    <value>xxxx</value>
+</property>
+<property>
+    <name>fs.s3a.secret.key</name>
+    <value>xxxx</value>
+</property>
+<property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+</property>
+<property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+</property>
+<property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://<host>:9000</value>
+</property>
+<property>
+   <name>datanucleus.autoStartMechanism</name>
+   <value>SchemaTable</value>
+ </property>
+</configuration>
+```
