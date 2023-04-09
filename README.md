@@ -63,5 +63,81 @@ export MINIO_DATA_PATH=/data/minio
 
 ```
 
-- So at this stage; you have a program which can create tables and run SQL/DML on delta lake tables which are using an s3 compliant object storage (minio) for data storage.
+- So at this stage; you have a (spark based) program which can create tables and run SQL/DML on delta lake tables which are using an s3 compliant object storage (minio) for data storage. Now it's time to look at what tools can be used to query out the data and connect it with Business Intelligence tools like superset / Tableau / PowerBI etc.
+
+#### Trino
+
+##### Why Trino?
+
+- Honestly I jumped to setup Apache superset, thinking Apache SQL would integrate fine with superset and wouldn't need anyother query enginge layer to keep things simpler, however I found myself out of support as Superset requires metadata about the underlying dataset in terms of catalog / schemas etc, which was not available in a simple way using spark as the STS or the spark's thriftserver can query the delta-lake tables, but couldn't provide the metadata and it also required me copy the delta-lake and aws-s3 jars into spark's jars dir which I didn't like much..
+
+- With that backgaround, I started searching for a query engine which can sit on top of delta lake tables which are stored on minio's s3 fs. 
+- I soon found that facebook/meta's Presto was a first class citizen as it had declared integration with Delta Lake using one of Delta's native connectors. 
+- With Presto I was able to query the tables using the s3 paths as table names, which seemed a bit too odd for me to use. Soon I found out that Presto too requires metadata in terms of Hive Metastore - to know about the underlying schema. 
+- With that I went on to setup a hive standalone metastore service, which will store the metatdata about the delta-lake tables. How it will store that was not known yet. 
+- Once the HMS was up, and I was able to query delta-lake tables but still using path construct as table names, instead of simple table names. Also Presto's latest release 0.280 was spewing out of lot of errors on the console, but was still able to query the delta-tables. Due to the exceptions it encountered a simple query with three rows was also taking lot of time to complete.
+```
+select * from delta."$path$."s3a://delta-lake/demo_table";
+```
+- So with above experience, I went back to drawing board thinking Presto is not the right choice and then I looked at Trino. Trino is fork of Presto but with much better documentation on setup and configuration. It was in Trino's documentation where it was clearly mentioned that for using Trino's query engine a HMS is a must.
+- Trino also provides a way to register the metadata into hive using an out of box stored procedure/ function as shown below. This made things crystal clear and everything else worked out of box.
+```
+CALL example.system.register_table(schema_name => 'testdb', table_name => 'customer_orders', table_location => 's3a://my-bucket/a/path')
+```
+
+##### Trino Setup
+
+- For Trino, I choose to use the Docker Image as I had already got a flavour of manual installation because of an attempt to use Presto.
+- To start Trino - below docker is the command to be used, however before you jump and fire up the container - a couple of configuration files are to be created.
+```
+#!/bin/bash
+docker rm trino
+docker run --name trino -d -p 8084:8080 -v $PWD/trino/etc:/etc/trino -v /data/trino:/var/trino trinodb/trino
+```
+- Create below configuration files under directory 'etc', such that it can mounted as shown above. (These details are avialable in Trino's documentation as well, however few settings you have to figure out as you go along - so specifying them here)
+- `node.properties`
+```
+node.environment=docker
+node.id=ffffffff-ffff-ffff-ffff-ffffffffffff
+node.data-dir=/var/trino/data
+```
+- `jvm.config`
+```
+-server
+-Xmx5G
+-XX:InitialRAMPercentage=80
+-XX:MaxRAMPercentage=80
+-XX:G1HeapRegionSize=32M
+-XX:+ExplicitGCInvokesConcurrent
+-XX:+ExitOnOutOfMemoryError
+-XX:+HeapDumpOnOutOfMemoryError
+-XX:-OmitStackTraceInFastThrow
+-XX:ReservedCodeCacheSize=512M
+-XX:PerMethodRecompilationCutoff=10000
+-XX:PerBytecodeRecompilationCutoff=10000
+-Djdk.attach.allowAttachSelf=true
+-Djdk.nio.maxCachedBufferSize=2000000
+-XX:+UnlockDiagnosticVMOptions
+-XX:+UseAESCTRIntrinsics
+# Disable Preventive GC for performance reasons (JDK-8293861)
+-XX:-G1UsePreventiveGC
+```
+- `config.properties`
+```
+coordinator=true
+node-scheduler.include-coordinator=true
+http-server.http.port=8080
+discovery.uri=http://localhost:8080
+```
+- 'catalog/delta.properties` - notice the path it's 'etc/catalog/delta.properites'. This is the properties file, which is used by Trino to interact with Delta Tables. The properties provides the HMS uri, the s3 end-point and creds.
+```
+connector.name=delta_lake
+hive.metastore.uri=thrift://<host>:9083
+delta.hive-catalog-name=delta
+delta.register-table-procedure.enabled=true
+hive.s3.aws-access-key=<access_key>
+hive.s3.aws-secret-key=<secret_key>
+hive.s3.endpoint=http://<host>:9000
+hive.s3.ssl.enabled=false
+```
 
